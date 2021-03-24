@@ -1,5 +1,4 @@
 import socket
-import time
 from Request import HTTPRequest
 import threading
 
@@ -12,7 +11,7 @@ class Server:
         self.connections = []
 
     def handle_single_connection(self, conn):
-        
+
         try:
             data = conn.recv(1024)
         except socket.error:
@@ -27,7 +26,7 @@ class Server:
             response = self.handle_viewer(conn)
         elif request.method == "presenter":
             response = self.handle_presenter(conn)
-        
+
         return response.encode('utf8')
 
     def start(self):
@@ -42,42 +41,65 @@ class Server:
         try:
             while True:
                 conn, addr = s.accept()
-                print("Connected by", addr) 
+                print("Connected by", addr)
                 self.connections.append(conn)
-                t = threading.Thread( # we start a thread for each new client
-                    target=self.handle_single_connection, args=([conn]), daemon=True) 
+                t = threading.Thread(  # we start a thread for each new client
+                    target=self.handle_single_connection, args=([conn]), daemon=True)
                 t.start()
 
         except KeyboardInterrupt:
-            s.close() # On pressing ctrl + c, we close all connections
+            s.close()  # On pressing ctrl + c, we close all connections
             for conn in self.connections:
                 conn.close()
-            quit() # Then we shut down the server
+            quit()  # Then we shut down the server
 
     def handle_viewer(self, conn):
-        while True:
+        try:
+            data = conn.recv(1024)
+        except socket.error:
+            conn.close()
             try:
-                data = conn.recv(1024)
-            except socket.error:
-                conn.close()
                 self.connections.remove(conn)
-                return "Socket Error, Closing Connection\n"
-            except KeyboardInterrupt:
-                return "Closing Server\n"
-    
+            except ValueError:
+                print("Viewer Socket Error, Value Error")
+
+            return "Socket Error, Closing Connection\n"
+        except KeyboardInterrupt:
+            return "Closing Server\n"
+
+        conn.close()
+        try:
+            self.connections.remove(conn)
+        except ValueError:
+            print("Viewer Quit, Value Error")
+        return ""
+
     def handle_presenter(self, conn):
         while True:
             try:
                 data = conn.recv(1024)
             except socket.error:
                 conn.close()
-                self.connections.remove(conn)
+                try:
+                    self.connections.remove(conn)
+                except ValueError:
+                    print("Presenter Socket Error, Value Error")
+
                 return "Socket Error, Closing Connection\n"
             except KeyboardInterrupt:
                 return "Closing Server\n"
 
-            # print(data)
             response = data.decode('utf8').split("\n")[-2] + "\n"
+
+            if response == "quit\n":
+                conn.close()
+                try:
+                    self.connections.remove(conn)
+                except ValueError:
+                    # connection has already being removed
+                    print("Presenter Quit, Value Error")
+
+                return "Disconnected Successfully"
 
             for con in self.connections:
                 con.sendall(response.encode('utf8'))
