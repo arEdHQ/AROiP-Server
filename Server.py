@@ -1,6 +1,9 @@
 import socket
 from Request import HTTPRequest
 import threading
+from Sync import merge, diff
+import time
+import json
 
 
 class Server:
@@ -9,6 +12,8 @@ class Server:
         self.host = host
         self.port = port
         self.connections = []
+        self.viewers = []  # to be used for broadcast
+        self.isUpdated = False
 
     def handle_single_connection(self, conn):
 
@@ -23,6 +28,7 @@ class Server:
         response = ""
 
         if request.method == "viewer":
+            self.viewers.append(conn)
             response = self.handle_viewer(conn)
         elif request.method == "presenter":
             response = self.handle_presenter(conn)
@@ -54,16 +60,30 @@ class Server:
             quit()  # Then we shut down the server
 
     def handle_viewer(self, conn):
+        serverShadow = {}
         try:
-            data = conn.recv(1024)
-        except socket.error:
-            conn.close()
-            try:
-                self.connections.remove(conn)
-            except ValueError:
-                print("Viewer Socket Error, Value Error")
+            while(True):
+                cachedServerCopy = self.serverCopy
+                updates = diff(serverShadow, cachedServerCopy)
 
-            return "Socket Error, Closing Connection\n"
+                if updates is None:
+                    continue
+                conn.sendall(json.dumps(updates))  # send serverUpdates here
+
+                data = conn.recv(1024)
+                response = data.decode('utf8').split("\n")[-2]
+
+                if response == '200':
+                    serverShadow = cachedServerCopy
+                elif response == "quit":
+                    break
+                else:
+                    # log the errors out here
+                    # increase sleep time if viewer keeps on denying response
+                    time.sleep(0.030)
+                    continue
+                time.sleep(0.050)
+
         except KeyboardInterrupt:
             return "Closing Server\n"
 
@@ -75,6 +95,8 @@ class Server:
         return ""
 
     def handle_presenter(self, conn):
+        serverShadow = {}
+
         while True:
             try:
                 data = conn.recv(1024)
@@ -89,9 +111,9 @@ class Server:
             except KeyboardInterrupt:
                 return "Closing Server\n"
 
-            response = data.decode('utf8').split("\n")[-2] + "\n"
+            update = data.decode('utf8').split("\n")[-2] + "\n"
 
-            if response == "quit\n":
+            if update == "quit\n":
                 conn.close()
                 try:
                     self.connections.remove(conn)
@@ -101,5 +123,11 @@ class Server:
 
                 return "Disconnected Successfully"
 
-            for con in self.connections:
-                con.sendall(response.encode('utf8'))
+            update = json.loads(update)
+
+            # lock servercopy here
+            presenterUpdates, serverShadow, self.serverCopy = merge(
+                update, serverShadow, self.serverCopy)
+            # Unlock servercopy here
+
+            conn.sendall(json.dumps(presenterUpdates))
