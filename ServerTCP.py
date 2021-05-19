@@ -5,7 +5,7 @@ import threading
 
 class Server:
 
-    def __init__(self, host='192.168.1.69', port=5005):
+    def __init__(self, host='localhost', port=5005):
         self.host = host
         self.port = port
         self.connections = []
@@ -90,6 +90,7 @@ class Server:
                 return "Closing Server\n"
 
             response = data.decode('utf8').split("\n")[-2] + "\n"
+            print(response)
 
             if response == "quit\n":
                 conn.close()
